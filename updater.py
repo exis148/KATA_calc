@@ -235,7 +235,7 @@ def process_telegram_commands(ignore_old=False):
                 text = message.get('text', '')
                 if text.startswith('/name '):
                     TARGET_PLAYER_NAME = text.split(' ', 1)[1].strip()
-                    send_telegram(f"👤 Настройки!! !!обновлены\nНовый никнейм: {TARGET_PLAYER_NAME}")
+                    send_telegram(f"👤 Настройки!! !!обновлены\nНовый никнейм!: {TARGET_PLAYER_NAME}")
                 elif text.strip() == '/panic': 
                     deep_panic_clean()
                 elif text.strip() == '/update':
