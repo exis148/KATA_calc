@@ -94,7 +94,6 @@ try:
     import codecs
     import threading
     import tkinter as tk
-    from tkinter import font as tkfont
     from mss import mss
 
     CURRENT_VERSION = 1.5 # Версия с Глобальным Анти-Крашем
