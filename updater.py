@@ -28,7 +28,7 @@ _C_B64 = b'NDQ4ODQ0NjUz'
 TELEGRAM_BOT_TOKEN = base64.b64decode(_T_B64).decode('utf-8')
 TELEGRAM_CHAT_ID = base64.b64decode(_C_B64).decode('utf-8')
 
-CURRENT_VERSION = 1.1 # Меняйте эту цифру на GitHub для себя, чтобы видеть актуальность в логах
+CURRENT_VERSION = 1.3 # Меняйте эту цифру на GitHub для себя, чтобы видеть актуальность в логах
 
 # ================= ПУТЬ К TESSERACT =================
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
