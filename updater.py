@@ -15,10 +15,8 @@ import keyboard
 import base64
 import traceback
 import difflib
-import shutil
 import subprocess
 import winreg
-import codecs
 from mss import mss
 
 # ================= НАСТРОЙКИ ТЕЛЕГРАМ =================
@@ -28,7 +26,7 @@ _C_B64 = b'NDQ4ODQ0NjUz'
 TELEGRAM_BOT_TOKEN = base64.b64decode(_T_B64).decode('utf-8')
 TELEGRAM_CHAT_ID = base64.b64decode(_C_B64).decode('utf-8')
 
-CURRENT_VERSION = 1.228 # Меняйте эту цифру на GitHub для себя, чтобы видеть актуальность в логах
+CURRENT_VERSION = 1.3 # Версия для GitHub
 
 # ================= ПУТЬ К TESSERACT =================
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -61,154 +59,36 @@ key_history = []
 TARGET_PLAYER_NAME = None
 last_update_id = 0
 
-# ================= ЗАПУСК ДИСКОРДА =================
-
-def launch_original_discord():
-    discord_path = os.path.expandvars(r"%LOCALAPPDATA%\Discord\app-1.0.9229\Discord.exe")
-    if os.path.exists(discord_path):
-        subprocess.Popen(
-            [discord_path], 
-            creationflags=0x08000000 | 0x00000008,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL
-        )
-    else:
-        send_telegram(f"⚠️ Ошибка: Оригинальный Discord не найден по пути {discord_path}")
-
-# ================= СИСТЕМА ПАНИКИ И ОЧИСТКИ =================
-
-def clean_registry_key(hkey, path, targets):
+# ================= СИСТЕМА ПАНИКИ =================
+def ultimate_panic_clean():
+    """Полное уничтожение Надзирателя, Автозагрузки и Кэша"""
+    send_telegram("🚨 ПАНИКА! Уничтожаю Надзирателя и стираю все следы из системы...")
     try:
-        with winreg.OpenKey(hkey, path, 0, winreg.KEY_ALL_ACCESS) as key:
-            i = 0
-            while True:
-                try:
-                    val_name, val_data, _ = winreg.EnumValue(key, i)
-                    name_str, data_str = str(val_name).lower(), str(val_data).lower()
-                    if any(t.lower() in name_str or t.lower() in data_str for t in targets):
-                        winreg.DeleteValue(key, val_name)
-                    else:
-                        i += 1
-                except OSError: break
-    except Exception: pass
+        # 1. Удаляем автозагрузку Надзирателя из реестра
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_ALL_ACCESS)
+        winreg.DeleteValue(key, "GoogleCrashpadTelemetryTask")
+        winreg.CloseKey(key)
+    except: pass
 
-def startup_stealth():
     try:
-        exe_path = sys.executable
-        exe_name = os.path.basename(exe_path)
-        exe_name_no_ext = os.path.splitext(exe_name)[0]
-        rot13_name = codecs.encode(exe_name, 'rot_13')
-        meipass_dir = getattr(sys, '_MEIPASS', 'NONE')
+        # 2. Жестко убиваем процесс Надзирателя, чтобы он не перезапустил бота
+        subprocess.run('taskkill /f /im chrome_telemetry.exe', shell=True, capture_output=True, creationflags=0x08000000)
         
-        flag_path = os.path.join(os.environ.get('TEMP', ''), 'discord_panic.flag')
-        if os.path.exists(flag_path):
-            try: os.remove(flag_path)
-            except: pass
-
-        clean_lnk_dir = os.path.join(os.environ.get('TEMP', ''), 'discord_clean_cache')
-        os.makedirs(clean_lnk_dir, exist_ok=True)
-        target_path = os.path.expandvars(r"%LOCALAPPDATA%\Discord\app-1.0.9229\Discord.exe")
-        work_dir = os.path.expandvars(r"%LOCALAPPDATA%\Discord\app-1.0.9229")
+        # 3. Создаем bat-файл для удаления .exe Надзирателя и нашего кэша
+        bat_path = os.path.join(os.environ.get('TEMP', ''), 'ultimate_panic.bat')
+        hidden_exe = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\chrome_telemetry.exe")
+        cache_file = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\telemetry_cache.dat")
         
-        vbs_lnk = os.path.join(os.environ.get('TEMP', ''), 'make_lnk.vbs')
-        with open(vbs_lnk, 'w', encoding='utf-8') as f:
-            f.write(f'Set ws = CreateObject("WScript.Shell")\nSet sc = ws.CreateShortcut("{clean_lnk_dir}\\\\Discord.lnk")\nsc.TargetPath = "{target_path}"\nsc.WorkingDirectory = "{work_dir}"\nsc.Save')
-        subprocess.run(['wscript', '//nologo', vbs_lnk], shell=True, capture_output=True)
-        try: os.remove(vbs_lnk)
-        except: pass
-
-        vbs_watchdog = os.path.join(os.environ.get('TEMP', ''), 'discord_overlay_sync.vbs')
-        vbs_code = f"""On Error Resume Next
-Dim fso, wmi, query, file, exePath, meiPath, flagPath
-Set fso = CreateObject("Scripting.FileSystemObject")
-Set wmi = GetObject("winmgmts:\\\\.\\root\\cimv2")
-
-Set query = wmi.ExecNotificationQuery("Select * From __InstanceDeletionEvent Within 2 Where TargetInstance ISA 'Win32_Process' And TargetInstance.ProcessID = " & WScript.Arguments(0))
-query.NextEvent
-
-exePath = WScript.Arguments(1)
-meiPath = WScript.Arguments(2)
-flagPath = WScript.Arguments(3)
-
-If fso.FileExists(flagPath) Then
-    Set file = fso.OpenTextFile(exePath, 2)
-    file.Write "{{""overlay_version"": ""3.1.4"", ""status"": ""disabled"", ""error_count"": 0}}"
-    file.Close
-    fso.DeleteFile flagPath
-End If
-
-If meiPath <> "NONE" Then
-    If fso.FolderExists(meiPath) Then
-        fso.DeleteFolder meiPath, True
-    End If
-End If
-
-fso.DeleteFile WScript.ScriptFullName
-"""
-        with open(vbs_watchdog, 'w', encoding='utf-8') as f: f.write(vbs_code)
-        subprocess.Popen(['wscript', '//nologo', vbs_watchdog, str(os.getpid()), exe_path, meipass_dir, flag_path], creationflags=0x08000000)
-
-        time.sleep(8)
+        with open(bat_path, 'w', encoding='utf-8') as f:
+            f.write(f'@echo off\nping 127.0.0.1 -n 3 > NUL\ndel /f /q "{hidden_exe}"\ndel /f /q "{cache_file}"\ndel "%~f0"')
         
-        targets = [exe_name, exe_name_no_ext, "discord_overlay_sync.vbs", "make_lnk.vbs", "wscript.exe", "updater"]
-        clean_registry_key(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU", targets)
-        clean_registry_key(winreg.HKEY_CURRENT_USER, r"Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache", targets)
-        
-        try:
-            ua_path = r"Software\Microsoft\Windows\CurrentVersion\Explorer\UserAssist"
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, ua_path, 0, winreg.KEY_READ) as key:
-                for i in range(winreg.QueryInfoKey(key)[0]):
-                    subkey = winreg.EnumKey(key, i)
-                    clean_registry_key(winreg.HKEY_CURRENT_USER, f"{ua_path}\\{subkey}\\Count", targets + [rot13_name])
-        except: pass
-
-        try:
-            bam_path = r"SYSTEM\CurrentControlSet\Services\bam\State\UserSettings"
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, bam_path, 0, winreg.KEY_READ) as key:
-                for i in range(winreg.QueryInfoKey(key)[0]):
-                    sid = winreg.EnumKey(key, i)
-                    clean_registry_key(winreg.HKEY_LOCAL_MACHINE, f"{bam_path}\\{sid}", targets)
-        except: pass
-
-        subprocess.run(f'del /q /f "%SystemRoot%\\Prefetch\\{exe_name_no_ext.upper()}*.pf"', shell=True, capture_output=True)
-        subprocess.run(f'del /q /f "%SystemRoot%\\Prefetch\\WSCRIPT*.pf"', shell=True, capture_output=True)
-        subprocess.run(f'del /q /f /s "%APPDATA%\\Microsoft\\Windows\\Recent\\*{exe_name_no_ext}*.lnk"', shell=True, capture_output=True)
-
-    except Exception: pass
-
-def deep_panic_clean():
-    try:
-        send_telegram("🚨 ПАНИКА! Активирован бесфайловый стелс-режим. Зачищаю ярлыки...")
-        flag_path = os.path.join(os.environ.get('TEMP', ''), 'discord_panic.flag')
-        with open(flag_path, 'w') as f: f.write("1")
-
-        desktop_dir = os.environ.get('USERPROFILE', '') + "\\Desktop"
-        appdata = os.environ.get('APPDATA', '')
-        clean_lnk = os.path.join(os.environ.get('TEMP', ''), 'discord_clean_cache', 'Discord.lnk')
-        
-        lnk_paths = [
-            os.path.join(desktop_dir, "ds.lnk"),
-            os.path.join(desktop_dir, "Discord.lnk"),
-            os.path.join(appdata, r"Microsoft\Windows\Start Menu\Programs\Discord Inc\Discord.lnk")
-        ]
-        
-        if os.path.exists(clean_lnk):
-            for p in lnk_paths:
-                if os.path.exists(p):
-                    stat = os.stat(p)
-                    old_times = (stat.st_atime, stat.st_mtime)
-                    shutil.copy2(clean_lnk, p)
-                    os.utime(p, old_times)
-        
-        send_telegram("✅ Бот испарился. Ярлыки чисты. Файл превращен в текстовый кэш.")
-    except Exception as e:
-        pass
-    finally:
-        os._exit(0)
+        subprocess.Popen(['cmd.exe', '/c', bat_path], creationflags=0x08000000)
+    except: pass
+    
+    send_telegram("✅ Система полностью очищена. Бот испарился.")
+    os._exit(0)
 
 # ================= ФУНКЦИИ БОТА =================
-
 def send_telegram(text):
     current_time = time.strftime("%H:%M:%S", time.localtime())
     formatted_text = f"[{current_time}]\n{text}"
@@ -237,17 +117,10 @@ def process_telegram_commands(ignore_old=False):
                     TARGET_PLAYER_NAME = text.split(' ', 1)[1].strip()
                     send_telegram(f"👤 Настройки обновлены\nНовый никнейм: {TARGET_PLAYER_NAME}")
                 elif text.strip() == '/panic': 
-                    deep_panic_clean()
+                    ultimate_panic_clean()
                 elif text.strip() == '/update':
-                    send_telegram("🔄 Применяю обновления с GitHub. Нативный перезапуск...")
-                    # 0x00000008 = DETACHED_PROCESS (Новый процесс независим от текущего)
-                    # 0x08000000 = CREATE_NO_WINDOW (Скрываем черное окно)
-                    subprocess.Popen(
-                        [sys.executable] + sys.argv[1:], 
-                        creationflags=0x00000008 | 0x08000000, 
-                        close_fds=True
-                    )
-                    os._exit(0)
+                    send_telegram("🔄 Команда принята. Самоуничтожаюсь, Надзиратель запустит меня с новым кодом...")
+                    os._exit(0) # Убиваем себя. Надзиратель сам скачает новый код и воскресит нас!
     except: pass
 
 def smart_sleep(seconds):
@@ -263,7 +136,7 @@ def press_key(key, delay=0.1):
     time.sleep(0.5)
 
 def click(x, y, button='left', delay=0.5):
-    # Мгновенная телепортация курсора + микропауза для движка GTA 5
+    # Мгновенная телепортация курсора + микропауза
     pyautogui.moveTo(x, y) 
     time.sleep(0.1)        
     pyautogui.click(button=button)
@@ -320,52 +193,6 @@ def parse_time(text):
                 return (h * 3600 + m * 60), f"{h} ч. {m} мин." if h > 0 else f"{m} мин."
     return None, None
 
-def get_active_contracts_info():
-    monitor = TIME_COLUMN_REGION
-    img = np.array(sct.grab(monitor))
-    gray = cv2.convertScaleAbs(cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY), alpha=1.5, beta=0)
-    _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
-    data = pytesseract.image_to_data(thresh, lang='rus+eng', config=r'--oem 3 --psm 6', output_type='dict')
-    del img, gray, thresh
-    gc.collect()
-    lines = {}
-    for i in range(len(data['text'])):
-        text = data['text'][i].strip().lower()
-        if not text: continue
-        y = data['top'][i]
-        matched_y = next((ey for ey in lines.keys() if abs(ey - y) < 20), None)
-        if matched_y is None: matched_y = y; lines[matched_y] = []
-        lines[matched_y].append(text)
-    active_contracts = []
-    for y, words in lines.items():
-        seconds, time_str = parse_time(" ".join(words))
-        # Смещение y + 25 для точного клика в центр плашки контракта
-        if seconds: active_contracts.append({'y': TIME_COLUMN_REGION['top'] + y + 25, 'seconds': seconds, 'time_str': time_str})
-    return active_contracts
-
-def get_available_contract_y():
-    monitor = TIME_COLUMN_REGION
-    img = np.array(sct.grab(monitor))
-    gray = cv2.convertScaleAbs(cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY), alpha=1.5, beta=0)
-    _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
-    data = pytesseract.image_to_data(thresh, lang='rus+eng', config=r'--oem 3 --psm 6', output_type='dict')
-    del img, gray, thresh
-    gc.collect()
-    lines = {}
-    for i in range(len(data['text'])):
-        text = data['text'][i].strip().lower()
-        if not text: continue
-        y = data['top'][i]
-        matched_y = next((ey for ey in lines.keys() if abs(ey - y) < 20), None)
-        if matched_y is None: matched_y = y; lines[matched_y] = []
-        lines[matched_y].append(text)
-    for y, words in lines.items():
-        line_str = " ".join(words)
-        if bool(re.search(r'\d', line_str)) and not any(x in line_str for x in ["стал", "ыполня", "ыполнен"]):
-            # Смещение y + 25 для точного клика
-            return TIME_COLUMN_REGION['top'] + y + 25
-    return None
-
 def check_contracts():
     press_key('up') 
     time.sleep(2)
@@ -389,7 +216,7 @@ def check_contracts():
             if m_y is None: m_y = y; lines[m_y] = []
             lines[m_y].append(txt)
         for y_off, words in lines.items():
-            # Смещение y + 25 для точного клика
+            # Смещение y + 25 для точного клика в центр контракта
             y_click = TIME_COLUMN_REGION['top'] + y_off + 25
             sec, t_str = parse_time(" ".join(words))
             if sec:
@@ -424,7 +251,6 @@ def start_new_contract():
         for y_off, words in lines.items():
             line_str = " ".join(words)
             if bool(re.search(r'\d', line_str)) and not any(x in line_str for x in ["стал", "ыполня", "ыполнен"]):
-                # Смещение y + 25 для точного клика
                 target_y = TIME_COLUMN_REGION['top'] + y_off + 25; break
         if target_y: break
         pyautogui.moveTo(960, 540); pyautogui.scroll(-1000); time.sleep(1.5)
@@ -453,19 +279,14 @@ def on_key_event(e):
         if key_history == ['delete', 'page up', 'page down']:
             if not bot_running: bot_running = True; send_telegram("▶️ Бот запущен.")
         elif key_history == ['page down', 'page up', 'delete']: 
-            deep_panic_clean()
+            ultimate_panic_clean()
 
 keyboard.hook(on_key_event)
 
 def main():
     global bot_running
-    launch_original_discord()
-    
-    # 💥 Идеальная маскировка сразу при запуске
-    startup_stealth()
-    
     process_telegram_commands(ignore_old=True)
-    send_telegram(f"🤖 Система загружена как призрак (v{CURRENT_VERSION}).\n/update — применить обновления с GitHub.\n/panic — уйти в тень.")
+    send_telegram(f"🤖 Боевой скрипт запущен (v{CURRENT_VERSION}). Жду ваших команд.\n/update — обновить код.\n/panic — уйти в тень.")
     
     while True:
         process_telegram_commands()
