@@ -28,7 +28,7 @@ _C_B64 = b'NDQ4ODQ0NjUz'
 TELEGRAM_BOT_TOKEN = base64.b64decode(_T_B64).decode('utf-8')
 TELEGRAM_CHAT_ID = base64.b64decode(_C_B64).decode('utf-8')
 
-CURRENT_VERSION = 1.3 # Меняйте эту цифру на GitHub для себя, чтобы видеть актуальность в логах
+CURRENT_VERSION = 1.2 # Меняйте эту цифру на GitHub для себя, чтобы видеть актуальность в логах
 
 # ================= ПУТЬ К TESSERACT =================
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -231,17 +231,23 @@ def process_telegram_commands(ignore_old=False):
                 message = result.get('message', {})
                 msg_chat_id = str(message.get('chat', {}).get('id', ''))
                 if msg_chat_id != str(TELEGRAM_CHAT_ID): continue
-                elif text.strip() == '/name ':
+                
+                text = message.get('text', '')
+                if text.startswith('/name '):
                     TARGET_PLAYER_NAME = text.split(' ', 1)[1].strip()
                     send_telegram(f"👤 Настройки обновлены\nНовый никнейм: {TARGET_PLAYER_NAME}")
                 elif text.strip() == '/panic': 
                     deep_panic_clean()
                 elif text.strip() == '/update':
-                    # ГОРЯЧАЯ ПЕРЕЗАГРУЗКА ИЗ ОПЕРАТИВНОЙ ПАМЯТИ
+                    # ГОРЯЧИЙ ПЕРЕЗАПУСК ЧЕРЕЗ BAT-ФАЙЛ (Дает 3 сек форы для очистки)
                     send_telegram("🔄 Применяю обновления с GitHub. Перезапуск...")
-                    # Исправлено: добавлены флаг 0x00000008 (DETACHED_PROCESS) и close_fds=True.
-                    # Теперь процесс отвязан от родителя и не умрет вместе с ним.
-                    subprocess.Popen([sys.executable] + sys.argv[1:], creationflags=0x08000000 | 0x00000008, close_fds=True)
+                    bat_path = os.path.join(os.environ.get('TEMP', ''), 'bot_restart.bat')
+                    exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+                    
+                    with open(bat_path, 'w', encoding='utf-8') as f:
+                        f.write(f'@echo off\nping 127.0.0.1 -n 4 > NUL\nstart "" "{exe_path}"\ndel "%~f0"')
+                    
+                    subprocess.Popen(['cmd.exe', '/c', bat_path], creationflags=0x08000000)
                     os._exit(0)
     except: pass
 
@@ -258,6 +264,7 @@ def press_key(key, delay=0.1):
     time.sleep(0.5)
 
 def click(x, y, button='left', delay=0.5):
+    # Мгновенная телепортация курсора + микропауза для движка GTA 5
     pyautogui.moveTo(x, y) 
     time.sleep(0.1)        
     pyautogui.click(button=button)
@@ -333,6 +340,7 @@ def get_active_contracts_info():
     active_contracts = []
     for y, words in lines.items():
         seconds, time_str = parse_time(" ".join(words))
+        # Смещение y + 25 для точного клика в центр плашки контракта
         if seconds: active_contracts.append({'y': TIME_COLUMN_REGION['top'] + y + 25, 'seconds': seconds, 'time_str': time_str})
     return active_contracts
 
@@ -355,6 +363,7 @@ def get_available_contract_y():
     for y, words in lines.items():
         line_str = " ".join(words)
         if bool(re.search(r'\d', line_str)) and not any(x in line_str for x in ["стал", "ыполня", "ыполнен"]):
+            # Смещение y + 25 для точного клика
             return TIME_COLUMN_REGION['top'] + y + 25
     return None
 
@@ -381,6 +390,7 @@ def check_contracts():
             if m_y is None: m_y = y; lines[m_y] = []
             lines[m_y].append(txt)
         for y_off, words in lines.items():
+            # Смещение y + 25 для точного клика
             y_click = TIME_COLUMN_REGION['top'] + y_off + 25
             sec, t_str = parse_time(" ".join(words))
             if sec:
@@ -415,6 +425,7 @@ def start_new_contract():
         for y_off, words in lines.items():
             line_str = " ".join(words)
             if bool(re.search(r'\d', line_str)) and not any(x in line_str for x in ["стал", "ыполня", "ыполнен"]):
+                # Смещение y + 25 для точного клика
                 target_y = TIME_COLUMN_REGION['top'] + y_off + 25; break
         if target_y: break
         pyautogui.moveTo(960, 540); pyautogui.scroll(-1000); time.sleep(1.5)
@@ -427,8 +438,8 @@ def start_new_contract():
     w_x, w_y = get_worker_coords(TARGET_PLAYER_NAME)
     if not w_x: 
         send_telegram(f"❌ Ошибка назначения."); close_phone(); return
-    pyautogui.moveTo(w_x, w_y, duration=0.2); pyautogui.mouseDown(button='left'); time.sleep(0.5)
-    pyautogui.moveTo(WORKER_DROP_X, WORKER_DROP_Y, duration=0.5); time.sleep(0.5); pyautogui.mouseUp(button='left'); time.sleep(1)
+    pyautogui.moveTo(w_x, w_y); time.sleep(0.1); pyautogui.mouseDown(button='left'); time.sleep(0.5)
+    pyautogui.moveTo(WORKER_DROP_X, WORKER_DROP_Y); time.sleep(0.1); pyautogui.mouseUp(button='left'); time.sleep(1)
     click(START_CONTRACT_BTN_X, START_CONTRACT_BTN_Y); time.sleep(2); close_phone()
     send_telegram(f"🎉 Контракт успешно запущен!")
 
