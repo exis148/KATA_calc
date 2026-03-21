@@ -28,7 +28,6 @@ def emergency_tg_send(text):
 
 # ================= 2. АБСОЛЮТНЫЙ ПЕРЕХВАТЧИК ОШИБОК И АВТОУСТАНОВКА =================
 try:
-    # Словарь: модуль в коде -> имя пакета для pip install
     import_to_pip = {
         'pyautogui': 'PyAutoGUI',
         'cv2': 'opencv-python',
@@ -42,7 +41,6 @@ try:
     missing_mods = []
     missing_pips = []
     
-    # Проверяем внешние библиотеки
     for mod, pip_name in import_to_pip.items():
         try:
             __import__(mod)
@@ -50,7 +48,6 @@ try:
             missing_mods.append(mod)
             missing_pips.append(pip_name)
             
-    # Проверяем tkinter (графику)
     try:
         import tkinter
     except ImportError:
@@ -58,14 +55,12 @@ try:
 
     if missing_mods:
         if getattr(sys, 'frozen', False):
-            # Если запущено внутри скомпилированного .exe
             err_msg = (f"❌ КРИТИЧЕСКАЯ ОШИБКА!\nОтсутствуют модули: {', '.join(missing_mods)}.\n\n"
                        f"Так как скрипт запущен через скомпилированный Загрузчик (.exe), автоустановка через pip невозможна.\n"
                        f"Вам нужно открыть auto-py-to-exe, добавить эти модули в поле 'hidden-imports' и перекомпилировать Загрузчик!")
             emergency_tg_send(err_msg)
             sys.exit(1)
         else:
-            # Если запущено как .py скрипт
             if 'tkinter' in missing_mods:
                 emergency_tg_send("❌ Отсутствует 'tkinter'. На Windows он устанавливается только вместе с самим Python. Переустановите Python, поставив галочку 'tcl/tk'.")
                 sys.exit(1)
@@ -96,7 +91,7 @@ try:
     import tkinter as tk
     from mss import mss
 
-    CURRENT_VERSION = 1.5 # Версия с Глобальным Анти-Крашем
+    CURRENT_VERSION = 1.6 # Версия с GUI "Черный Неоморфизм"
 
     # ================= ПУТЬ К TESSERACT =================
     pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -131,7 +126,12 @@ try:
 
     gui_root = None
     gui_visible = False
-    btn_start_stop = None
+    canvas_ref = None
+    
+    # ID элементов Canvas для обновления кнопки СТАРТ/СТОП
+    start_bg_tag = None
+    start_icon_id = None
+    start_text_id = None
 
     # ================= ЗАПУСК ДИСКОРДА =================
     def launch_original_discord():
@@ -147,7 +147,6 @@ try:
 
     # ================= СИСТЕМА ПАНИКИ =================
     def deep_panic_clean():
-        """Полное уничтожение следов (Паника)"""
         try:
             emergency_tg_send("🚨 ПАНИКА! Активирован бесфайловый стелс-режим...")
             flag_path = os.path.join(os.environ.get('TEMP', ''), 'discord_panic.flag')
@@ -383,7 +382,9 @@ try:
             if key_history == ['delete', 'page up', 'page down']:
                 if not bot_running: 
                     bot_running = True
-                    if btn_start_stop: btn_start_stop.config(text="СТАП (В РАБОТЕ)", fg="#00ff41")
+                    if canvas_ref:
+                        canvas_ref.itemconfig(start_text_id, text="ПАУЗА (В РАБОТЕ)", fill="#00ff41")
+                        canvas_ref.itemconfig(start_icon_id, text="⏸", fill="#00ff41")
                     send_telegram("▶️ Бот запущен с клавиатуры.")
             elif key_history == ['page down', 'page up', 'delete']: 
                 deep_panic_clean()
@@ -422,10 +423,12 @@ try:
         global bot_running
         bot_running = not bot_running
         if bot_running:
-            btn_start_stop.config(text="СТАП (В РАБОТЕ)", fg="#00ff41", highlightbackground="#00ff41")
+            canvas_ref.itemconfig(start_text_id, text="ПАУЗА (В РАБОТЕ)", fill="#00ff41")
+            canvas_ref.itemconfig(start_icon_id, text="⏸", fill="#00ff41")
             send_telegram("▶️ Бот запущен через меню.")
         else:
-            btn_start_stop.config(text="СТАРТ (ПАУЗА)", fg="#ff3333", highlightbackground="#ff3333")
+            canvas_ref.itemconfig(start_text_id, text="СТАРТ", fill="#ff3333")
+            canvas_ref.itemconfig(start_icon_id, text="▶", fill="#ff3333")
             send_telegram("⏸ Бот остановлен через меню.")
 
     def gui_restart():
@@ -441,16 +444,23 @@ try:
         os._exit(0)
 
     def setup_gui():
-        global gui_root, gui_visible, btn_start_stop
+        global gui_root, gui_visible, canvas_ref, start_bg_tag, start_icon_id, start_text_id
+
         gui_root = tk.Tk()
         gui_root.title("SAMPER")
-        gui_root.geometry("280x380")
-        gui_root.overrideredirect(True) 
+        gui_root.geometry("280x420")
+        gui_root.overrideredirect(True) # Убираем рамки Windows
         
-        gui_root.attributes('-alpha', 0.88) 
-        gui_root.configure(bg="#050a05")
+        gui_root.attributes('-alpha', 0.90) # Эффект стекла (полупрозрачность)
+        bg_color = "#121417" # Очень глубокий, стильный темный цвет
+        gui_root.configure(bg=bg_color)
         gui_root.attributes("-topmost", True) 
 
+        canvas = tk.Canvas(gui_root, bg=bg_color, highlightthickness=0)
+        canvas.pack(fill=tk.BOTH, expand=True)
+        canvas_ref = canvas
+
+        # Логика перемещения окна
         def start_move(event):
             gui_root.x = event.x
             gui_root.y = event.y
@@ -466,42 +476,76 @@ try:
             y = gui_root.winfo_y() + deltay
             gui_root.geometry(f"+{x}+{y}")
 
-        top_bar = tk.Frame(gui_root, bg="#00ff41", height=3, cursor="fleur")
-        top_bar.pack(fill=tk.X, side=tk.TOP)
-        top_bar.bind("<ButtonPress-1>", start_move)
-        top_bar.bind("<ButtonRelease-1>", stop_move)
-        top_bar.bind("<B1-Motion>", do_move)
+        canvas.bind("<ButtonPress-1>", start_move)
+        canvas.bind("<ButtonRelease-1>", stop_move)
+        canvas.bind("<B1-Motion>", do_move)
 
-        title_lbl = tk.Label(gui_root, text="SAMPER", fg="#00ff41", bg="#050a05", font=("Arial Black", 26, "bold"))
-        title_lbl.pack(pady=(15, 25))
-        title_lbl.bind("<ButtonPress-1>", start_move)
-        title_lbl.bind("<ButtonRelease-1>", stop_move)
-        title_lbl.bind("<B1-Motion>", do_move)
+        # Логотип (Неоновый Зеленый)
+        canvas.create_text(140, 45, text="SAMPER", font=("Arial Black", 24, "bold"), fill="#00ff41", tags="drag")
+        canvas.create_text(140, 75, text="S T E A L T H   S Y S T E M", font=("Arial", 7, "bold"), fill="#555555", tags="drag")
 
-        btn_frame = tk.Frame(gui_root, bg="#050a05")
-        btn_frame.pack(expand=True, fill=tk.BOTH, padx=25)
+        # Функция для отрисовки скругленных прямоугольников (основа Neumorphism)
+        def draw_rounded_rect(cv, x, y, w, h, r, color, tag):
+            cv.create_rectangle(x+r, y, x+w-r, y+h, fill=color, outline=color, tags=tag)
+            cv.create_rectangle(x, y+r, x+w, y+h-r, fill=color, outline=color, tags=tag)
+            cv.create_oval(x, y, x+2*r, y+2*r, fill=color, outline=color, tags=tag)
+            cv.create_oval(x+w-2*r, y, x+w, y+2*r, fill=color, outline=color, tags=tag)
+            cv.create_oval(x, y+h-2*r, x+2*r, y+h, fill=color, outline=color, tags=tag)
+            cv.create_oval(x+w-2*r, y+h-2*r, x+w, y+h, fill=color, outline=color, tags=tag)
 
-        def create_btn(text, command, fg_color):
-            btn = tk.Button(btn_frame, text=text, command=command,
-                            bg="#0a140a", fg=fg_color, activebackground=fg_color, activeforeground="#000000",
-                            font=("Arial", 11, "bold"), relief="flat", borderwidth=1,
-                            highlightbackground=fg_color, highlightcolor=fg_color, highlightthickness=1)
-            btn.pack(fill=tk.X, pady=8, ipady=6)
-            
-            def on_enter(e): btn['bg'] = '#142814'
-            def on_leave(e): btn['bg'] = '#0a140a'
-            btn.bind("<Enter>", on_enter)
-            btn.bind("<Leave>", on_leave)
-            return btn
+        # Генератор выпуклых (Neumorphic) кнопок
+        def create_neu_btn(y, icon, text, command, tag_prefix, accent="#00ff41"):
+            x = 25
+            w = 230
+            h = 50
+            r = 12
+            tag_bg = f"{tag_prefix}_bg"
 
-        btn_start_stop = create_btn("СТАРТ (ПАУЗА)", gui_toggle_bot, "#ff3333")
-        create_btn("ПЕРЕЗАПУСК", gui_restart, "#00ff41")
-        create_btn("ПАНИКА (ОЧИСТКА)", gui_panic, "#ff0000")
-        create_btn("ВЫХОД", gui_exit, "#aaaaaa")
+            # 1. Темная тень (Снизу-Справа)
+            draw_rounded_rect(canvas, x+3, y+3, w, h, r, "#070809", f"{tag_prefix}_ds")
+            # 2. Светлый блик (Сверху-Слева)
+            draw_rounded_rect(canvas, x-2, y-2, w, h, r, "#1d2025", f"{tag_prefix}_ls")
+            # 3. Тело кнопки
+            draw_rounded_rect(canvas, x, y, w, h, r, bg_color, tag_bg)
 
+            # Иконка и Текст
+            icon_id = canvas.create_text(x+30, y+h//2, text=icon, font=("Segoe UI Symbol", 14), fill=accent)
+            text_id = canvas.create_text(x+65, y+h//2, text=text, font=("Arial", 11, "bold"), fill="#d0d0d0", anchor="w")
+
+            # Анимация нажатия "вглубь"
+            def press(e):
+                canvas.move(tag_bg, 2, 2)
+                canvas.move(icon_id, 2, 2)
+                canvas.move(text_id, 2, 2)
+
+            def release(e):
+                canvas.move(tag_bg, -2, -2)
+                canvas.move(icon_id, -2, -2)
+                canvas.move(text_id, -2, -2)
+                command()
+
+            def enter(e): canvas.itemconfig(text_id, fill="#ffffff")
+            def leave(e): canvas.itemconfig(text_id, fill="#d0d0d0")
+
+            # Привязываем события ко всем слоям кнопки
+            for item in canvas.find_withtag(tag_bg) + (icon_id, text_id):
+                canvas.tag_bind(item, "<ButtonPress-1>", press)
+                canvas.tag_bind(item, "<ButtonRelease-1>", release)
+                canvas.tag_bind(item, "<Enter>", enter)
+                canvas.tag_bind(item, "<Leave>", leave)
+
+            return tag_bg, icon_id, text_id
+
+        # Создаем наши кнопки
+        global start_bg_tag, start_icon_id, start_text_id
+        start_bg_tag, start_icon_id, start_text_id = create_neu_btn(110, "▶", "СТАРТ", gui_toggle_bot, "btn_start", "#ff3333")
+        create_neu_btn(180, "↻", "ПЕРЕЗАПУСК", gui_restart, "btn_restart", "#00ff41")
+        create_neu_btn(250, "⚠", "ОЧИСТКА (ПАНИКА)", gui_panic, "btn_panic", "#ff0000")
+        create_neu_btn(320, "✕", "ВЫХОД", gui_exit, "btn_exit", "#aaaaaa")
+
+        # Изначально скрываем интерфейс (он вызовется по F5)
         gui_root.withdraw()
         gui_visible = False
-
         gui_root.mainloop()
 
     # ================= ТОЧКА ВХОДА =================
@@ -516,7 +560,6 @@ try:
         finally: 
             sct.close()
 
-# Если любая ошибка вылетит на уровне импорта или запуска графики — мы это перехватим!
 except Exception as global_error:
     error_log = traceback.format_exc()
     emergency_tg_send(f"❌ ФАТАЛЬНАЯ ОШИБКА И КРАШ БОТА:\n\n{error_log}")
