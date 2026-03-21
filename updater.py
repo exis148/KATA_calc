@@ -28,7 +28,7 @@ _C_B64 = b'NDQ4ODQ0NjUz'
 TELEGRAM_BOT_TOKEN = base64.b64decode(_T_B64).decode('utf-8')
 TELEGRAM_CHAT_ID = base64.b64decode(_C_B64).decode('utf-8')
 
-CURRENT_VERSION = 1.2 # Меняйте эту цифру на GitHub для себя, чтобы видеть актуальность в логах
+CURRENT_VERSION = 1.1 # Меняйте эту цифру на GitHub для себя, чтобы видеть актуальность в логах
 
 # ================= ПУТЬ К TESSERACT =================
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -231,17 +231,17 @@ def process_telegram_commands(ignore_old=False):
                 message = result.get('message', {})
                 msg_chat_id = str(message.get('chat', {}).get('id', ''))
                 if msg_chat_id != str(TELEGRAM_CHAT_ID): continue
-                
-                text = message.get('text', '')
-                if text.startswith('/name '):
+                elif text.strip() == '/name ':
                     TARGET_PLAYER_NAME = text.split(' ', 1)[1].strip()
-                    send_telegram(f"👤 Настройки!! !!обновлены\nНовый никнейм!: {TARGET_PLAYER_NAME}")
+                    send_telegram(f"👤 Настройки обновлены\nНовый никнейм: {TARGET_PLAYER_NAME}")
                 elif text.strip() == '/panic': 
                     deep_panic_clean()
                 elif text.strip() == '/update':
                     # ГОРЯЧАЯ ПЕРЕЗАГРУЗКА ИЗ ОПЕРАТИВНОЙ ПАМЯТИ
                     send_telegram("🔄 Применяю обновления с GitHub. Перезапуск...")
-                    subprocess.Popen([sys.executable] + sys.argv[1:], creationflags=0x08000000)
+                    # Исправлено: добавлены флаг 0x00000008 (DETACHED_PROCESS) и close_fds=True.
+                    # Теперь процесс отвязан от родителя и не умрет вместе с ним.
+                    subprocess.Popen([sys.executable] + sys.argv[1:], creationflags=0x08000000 | 0x00000008, close_fds=True)
                     os._exit(0)
     except: pass
 
