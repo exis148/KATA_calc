@@ -239,15 +239,14 @@ def process_telegram_commands(ignore_old=False):
                 elif text.strip() == '/panic': 
                     deep_panic_clean()
                 elif text.strip() == '/update':
-                    # ГОРЯЧИЙ ПЕРЕЗАПУСК ЧЕРЕЗ BAT-ФАЙЛ (Дает 3 сек форы для очистки)
-                    send_telegram("🔄 Применяю обновления с GitHub. Перезапуск...")
-                    bat_path = os.path.join(os.environ.get('TEMP', ''), 'bot_restart.bat')
-                    exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
-                    
-                    with open(bat_path, 'w', encoding='utf-8') as f:
-                        f.write(f'@echo off\nping 127.0.0.1 -n 4 > NUL\nstart "" "{exe_path}"\ndel "%~f0"')
-                    
-                    subprocess.Popen(['cmd.exe', '/c', bat_path], creationflags=0x08000000)
+                    send_telegram("🔄 Применяю обновления с GitHub. Нативный перезапуск...")
+                    # 0x00000008 = DETACHED_PROCESS (Новый процесс независим от текущего)
+                    # 0x08000000 = CREATE_NO_WINDOW (Скрываем черное окно)
+                    subprocess.Popen(
+                        [sys.executable] + sys.argv[1:], 
+                        creationflags=0x00000008 | 0x08000000, 
+                        close_fds=True
+                    )
                     os._exit(0)
     except: pass
 
