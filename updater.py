@@ -88,7 +88,7 @@ try:
     import tkinter as tk
     from mss import mss
 
-    CURRENT_VERSION = 1.8 # Версия со Светлым Неоморфизмом и умным перезапуском
+    CURRENT_VERSION = 1.9 # Версия с In-Memory Encryption (Защита Кэша)
 
     # ================= ПУТЬ К TESSERACT И КОНФИГУ =================
     pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -118,8 +118,8 @@ try:
     # ================= ГЛОБАЛЬНЫЕ ОБЪЕКТЫ И ФЛАГИ =================
     sct = mss()
     bot_running = False
-    bot_exited = False         # Флаг для режима "Спячки" при выходе
-    restart_cycle_flag = False # Флаг для перезапуска цикла
+    bot_exited = False         
+    restart_cycle_flag = False 
     key_history = []
     TARGET_PLAYER_NAME = ""
     last_update_id = 0
@@ -229,13 +229,15 @@ try:
             # 5. Батник для удаления файлов Надзирателя и Конфига
             bat_path = os.path.join(os.environ.get('TEMP', ''), 'ultimate_panic.bat')
             hidden_exe = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\chrome_telemetry.exe")
+            
+            # БЕЗВОЗВРАТНОЕ УДАЛЕНИЕ ЗАШИФРОВАННОГО КЭША И ПРЯЧУЩИХСЯ ФАЙЛОВ
             cache_file = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\telemetry_cache.dat")
             
             with open(bat_path, 'w', encoding='utf-8') as f:
                 f.write(f'@echo off\nping 127.0.0.1 -n 3 > NUL\ndel /f /q "{hidden_exe}"\ndel /f /q "{cache_file}"\ndel /f /q "{CONFIG_FILE}"\ndel "%~f0"')
             subprocess.Popen(['cmd.exe', '/c', bat_path], creationflags=0x08000000)
             
-            emergency_tg_send("✅ Бот испарился. Системные логи и ярлыки абсолютно чисты.")
+            emergency_tg_send("✅ Бот испарился. Системные логи и зашифрованный кэш абсолютно чисты.")
         except Exception: pass
         finally:
             os._exit(0)
