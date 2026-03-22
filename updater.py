@@ -88,7 +88,7 @@ try:
     import tkinter as tk
     from mss import mss
 
-    CURRENT_VERSION = 1.9 # Версия с In-Memory Encryption (Защита Кэша)
+    CURRENT_VERSION = 1.8 # Версия со Светлым Неоморфизмом и фиксом многопоточности
 
     # ================= ПУТЬ К TESSERACT И КОНФИГУ =================
     pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -116,10 +116,10 @@ try:
     START_CONTRACT_BTN_Y = 987
 
     # ================= ГЛОБАЛЬНЫЕ ОБЪЕКТЫ И ФЛАГИ =================
-    sct = mss()
+    sct = None # Инициализируем пустым, создадим внутри рабочего потока!
     bot_running = False
-    bot_exited = False         
-    restart_cycle_flag = False 
+    bot_exited = False         # Флаг для режима "Спячки" при выходе
+    restart_cycle_flag = False # Флаг для перезапуска цикла
     key_history = []
     TARGET_PLAYER_NAME = ""
     last_update_id = 0
@@ -229,15 +229,13 @@ try:
             # 5. Батник для удаления файлов Надзирателя и Конфига
             bat_path = os.path.join(os.environ.get('TEMP', ''), 'ultimate_panic.bat')
             hidden_exe = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\chrome_telemetry.exe")
-            
-            # БЕЗВОЗВРАТНОЕ УДАЛЕНИЕ ЗАШИФРОВАННОГО КЭША И ПРЯЧУЩИХСЯ ФАЙЛОВ
             cache_file = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\telemetry_cache.dat")
             
             with open(bat_path, 'w', encoding='utf-8') as f:
                 f.write(f'@echo off\nping 127.0.0.1 -n 3 > NUL\ndel /f /q "{hidden_exe}"\ndel /f /q "{cache_file}"\ndel /f /q "{CONFIG_FILE}"\ndel "%~f0"')
             subprocess.Popen(['cmd.exe', '/c', bat_path], creationflags=0x08000000)
             
-            emergency_tg_send("✅ Бот испарился. Системные логи и зашифрованный кэш абсолютно чисты.")
+            emergency_tg_send("✅ Бот испарился. Системные логи и ярлыки абсолютно чисты.")
         except Exception: pass
         finally:
             os._exit(0)
@@ -300,6 +298,7 @@ try:
         time.sleep(delay)
 
     def get_text_from_screen(region, psm=6):
+        global sct
         monitor = region
         img = np.array(sct.grab(monitor))
         gray = cv2.convertScaleAbs(cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY), alpha=1.5, beta=0)
@@ -321,6 +320,7 @@ try:
         return False
 
     def get_worker_coords(worker_name):
+        global sct
         monitor = STAFF_REGION
         img = np.array(sct.grab(monitor))
         gray = cv2.convertScaleAbs(cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY), alpha=1.5, beta=0)
@@ -351,6 +351,7 @@ try:
         return None, None
 
     def check_contracts():
+        global sct
         press_key('up') 
         time.sleep(2)
         click(APP_CONTRACTS_X, APP_CONTRACTS_Y)
@@ -389,6 +390,7 @@ try:
         return ('error_busy' if player_status == 'busy' else 'free'), None, None
 
     def start_new_contract():
+        global sct
         pyautogui.moveTo(960, 540); pyautogui.scroll(5000); time.sleep(1)
         target_y = None
         for _ in range(5):
@@ -467,7 +469,11 @@ try:
 
     # ================= БОЕВОЙ ПОТОК (ЛОГИКА БОТА) =================
     def bot_logic_loop():
-        global bot_running, restart_cycle_flag, bot_exited
+        global bot_running, restart_cycle_flag, bot_exited, sct
+        
+        # Создаем объект mss строго внутри этого потока!
+        sct = mss() 
+        
         launch_original_discord()
         
         process_telegram_commands(ignore_old=True)
@@ -685,7 +691,8 @@ try:
         try: 
             main()
         finally: 
-            sct.close()
+            if sct:
+                sct.close()
 
 except Exception as global_error:
     error_log = traceback.format_exc()
