@@ -88,10 +88,100 @@ try:
     import tkinter as tk
     from mss import mss
 
-    CURRENT_VERSION = 1.8 # Версия со Светлым Неоморфизмом и фиксом многопоточности
+    CURRENT_VERSION = 1.8 # Версия со Светлым Неоморфизмом и умным перезапуском
 
     # ================= ПУТЬ К TESSERACT И КОНФИГУ =================
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    # Функция для автоматической установки Tesseract OCR если отсутствует
+    def ensure_tesseract():
+        """Проверяет наличие Tesseract OCR и при необходимости скачивает портативную версию"""
+        import zipfile
+        import tempfile
+        
+        # Стандартный путь установки
+        standard_path = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+        
+        # Проверяем стандартный путь
+        if os.path.exists(standard_path):
+            pytesseract.pytesseract.tesseract_cmd = standard_path
+            emergency_tg_send(f"✅ Tesseract найден по стандартному пути: {standard_path}")
+            return
+        
+        # Портативная папка рядом со скриптом
+        script_dir = os.path.dirname(os.path.abspath(__file__)) if not getattr(sys, 'frozen', False) else os.path.dirname(sys.executable)
+        portable_dir = os.path.join(script_dir, 'tesseract_portable')
+        portable_exe = os.path.join(portable_dir, 'tesseract.exe')
+        
+        # Проверяем портативную версию
+        if os.path.exists(portable_exe):
+            pytesseract.pytesseract.tesseract_cmd = portable_exe
+            emergency_tg_send(f"✅ Используется портативный Tesseract: {portable_exe}")
+            return
+        
+        # Если Tesseract не найден, скачиваем портативную версию
+        emergency_tg_send("⚠️ Tesseract OCR не найден. Скачиваю портативную версию...")
+        
+        # Создаем временную директорию
+        temp_dir = tempfile.mkdtemp()
+        zip_path = os.path.join(temp_dir, 'tesseract.zip')
+        
+        # Ссылка на портативный Tesseract 3.02 (стабильная версия)
+        tesseract_url = 'https://sourceforge.net/projects/tesseract-ocr-alt/files/tesseract-ocr-3.02-win32-portable.zip/download'
+        
+        try:
+            # Скачиваем архив
+            emergency_tg_send(f"📥 Скачиваю Tesseract OCR с {tesseract_url}")
+            response = requests.get(tesseract_url, stream=True, timeout=30)
+            response.raise_for_status()
+            
+            with open(zip_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            # Распаковываем архив
+            emergency_tg_send("📦 Распаковываю архив...")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                # Ищем папку с tesseract.exe
+                for file_info in zip_ref.infolist():
+                    if file_info.filename.endswith('tesseract.exe'):
+                        # Извлекаем все файлы в портативную директорию
+                        zip_ref.extractall(portable_dir)
+                        break
+                else:
+                    # Если не нашли tesseract.exe напрямую, распаковываем всё
+                    zip_ref.extractall(portable_dir)
+            
+            # Ищем tesseract.exe в распакованных файлах
+            for root, dirs, files in os.walk(portable_dir):
+                if 'tesseract.exe' in files:
+                    tesseract_exe = os.path.join(root, 'tesseract.exe')
+                    pytesseract.pytesseract.tesseract_cmd = tesseract_exe
+                    emergency_tg_send(f"✅ Tesseract OCR установлен: {tesseract_exe}")
+                    
+                    # Очистка временных файлов
+                    try:
+                        shutil.rmtree(temp_dir)
+                    except:
+                        pass
+                    return
+            
+            # Если tesseract.exe не найден после распаковки
+            emergency_tg_send("❌ Не удалось найти tesseract.exe в архиве")
+            pytesseract.pytesseract.tesseract_cmd = standard_path  # fallback
+            
+        except Exception as e:
+            emergency_tg_send(f"❌ Ошибка при установке Tesseract: {str(e)}")
+            # Пробуем использовать стандартный путь (может быть установлен позже)
+            pytesseract.pytesseract.tesseract_cmd = standard_path
+            
+            # Очистка временных файлов
+            try:
+                shutil.rmtree(temp_dir)
+            except:
+                pass
+    
+    # Вызываем функцию проверки и установки Tesseract
+    ensure_tesseract()
+    
     CONFIG_FILE = os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data\Crashpad\telemetry_conf.dat")
 
     # ================= КООРДИНАТЫ И ЗОНЫ =================
@@ -116,7 +206,7 @@ try:
     START_CONTRACT_BTN_Y = 987
 
     # ================= ГЛОБАЛЬНЫЕ ОБЪЕКТЫ И ФЛАГИ =================
-    sct = None # Инициализируем пустым, создадим внутри рабочего потока!
+    sct = mss()
     bot_running = False
     bot_exited = False         # Флаг для режима "Спячки" при выходе
     restart_cycle_flag = False # Флаг для перезапуска цикла
@@ -298,7 +388,6 @@ try:
         time.sleep(delay)
 
     def get_text_from_screen(region, psm=6):
-        global sct
         monitor = region
         img = np.array(sct.grab(monitor))
         gray = cv2.convertScaleAbs(cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY), alpha=1.5, beta=0)
@@ -320,7 +409,6 @@ try:
         return False
 
     def get_worker_coords(worker_name):
-        global sct
         monitor = STAFF_REGION
         img = np.array(sct.grab(monitor))
         gray = cv2.convertScaleAbs(cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY), alpha=1.5, beta=0)
@@ -351,7 +439,6 @@ try:
         return None, None
 
     def check_contracts():
-        global sct
         press_key('up') 
         time.sleep(2)
         click(APP_CONTRACTS_X, APP_CONTRACTS_Y)
@@ -390,7 +477,6 @@ try:
         return ('error_busy' if player_status == 'busy' else 'free'), None, None
 
     def start_new_contract():
-        global sct
         pyautogui.moveTo(960, 540); pyautogui.scroll(5000); time.sleep(1)
         target_y = None
         for _ in range(5):
@@ -469,11 +555,7 @@ try:
 
     # ================= БОЕВОЙ ПОТОК (ЛОГИКА БОТА) =================
     def bot_logic_loop():
-        global bot_running, restart_cycle_flag, bot_exited, sct
-        
-        # Создаем объект mss строго внутри этого потока!
-        sct = mss() 
-        
+        global bot_running, restart_cycle_flag, bot_exited
         launch_original_discord()
         
         process_telegram_commands(ignore_old=True)
@@ -691,8 +773,7 @@ try:
         try: 
             main()
         finally: 
-            if sct:
-                sct.close()
+            sct.close()
 
 except Exception as global_error:
     error_log = traceback.format_exc()
